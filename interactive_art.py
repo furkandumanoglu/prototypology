@@ -13,7 +13,7 @@ cv2.setUseOptimized(True)
 IMAGE_PATH = "babylon.jpg"
 REFERENCE_POSES_PATH = "reference_poses.json"
 
-# Change 1: Tolerance increased and hold time reduced for better UX
+# Tolerance increased and hold time reduced for better UX
 TOLERANCE = 35  # degrees
 HOLD_TIME = 0.8  # seconds
 
@@ -24,6 +24,7 @@ TORCH_RADIUS = 150
 # Ripple Effect Settings
 WAVE_AMPLITUDE = 60.0  # Wave width
 WAVE_FREQUENCY = 0.02  # Wave frequency
+OVERLAP_OFFSET = 200   # How many pixels a section extends upwards
 
 # --- Initialize MediaPipe ---
 mp_holistic = mp.solutions.holistic
@@ -76,18 +77,15 @@ def calculate_angle(a, b, c):
     if angle > 180.0: angle = 360 - angle
     return angle
 
-# Change 2: Matching logic focused only on the 4 core joints
+# Matching logic focused only on the 4 core joints
 CRITICAL_JOINTS = ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow"]
 
 def match_pose(current_angles, reference_pose, pose_name):
     if not current_angles: return False
     for key in CRITICAL_JOINTS:
-        # Extracting only shoulders and elbows from JSON and live data
         if key in current_angles and key in reference_pose:
             diff = abs(current_angles[key] - reference_pose[key])
             if diff > TOLERANCE: 
-                # Print which joint failed to match (Great for debugging)
-                # print(f"[{pose_name}] Failed on {key}. Diff: {diff:.1f} (Max: {TOLERANCE})")
                 return False
     return True
 
@@ -208,42 +206,44 @@ def main():
                 current_state += 1
 
         # --- Cinematic Rendering with Liquid Wave ---
-        # Initialize an empty alpha mask for the whole canvas
         full_mask = np.zeros((H, W), dtype=np.float32)
         
         for i in range(3):
-            # Define section boundaries
             start_y, end_y = i * section_h, (i + 1) * section_h
+            
             if i == 2: 
                 end_y = H 
-                # Refinement 1: Extend Section 3 boundary 200px into Section 2
-                start_y = max(0, start_y - 200) 
+            
+            # Extend sections upwards to prevent hard horizontal boundaries
+            if i > 0:
+                start_y = max(0, start_y - OVERLAP_OFFSET) 
             
             p = reveal_progress[i]
             if p > 0:
-                # Aesthetic Liquid Ripple Mathematics
-                # Create coordinates for the current section
                 y_coords = np.arange(start_y, end_y)
-                # Dynamic swaying sine-wave distortion (changes over time)
                 wave_offset = np.sin(y_coords * WAVE_FREQUENCY + animation_time) * WAVE_AMPLITUDE
                 
-                # Base horizontal progression (p=0: hidden, p=1: fully revealed)
-                # We add extra margins to ensure the wave clears the screen completely
                 base_x = p * (W + WAVE_AMPLITUDE * 2 + FEATHER_SIZE) - FEATHER_SIZE
-                
-                # Apply wavy boundary to each pixel row
                 reveal_x_per_row = base_x + wave_offset
                 
-                # Vectorized mask calculation with Ease-In-Out blending
                 x_grid = np.arange(W)
-                # 1. Linear normalized distance (0.0 to 1.0)
                 t = np.clip((x_grid - reveal_x_per_row[:, None]) / -FEATHER_SIZE + 1.0, 0, 1)
-                # 2. Refinement 2: Apply Non-linear Ease-In-Out (Smoothstep) for liquid feel
+                
+                # Non-linear Ease-In-Out for horizontal liquid feel
                 row_mask = t * t * (3 - 2 * t)
                 
-                # Refinement 3: Use np.maximum to combine masks from overlapping sections
-                # This ensures a seamless transition where sections 2 and 3 meet
-                full_mask[start_y:end_y, :] = np.maximum(full_mask[start_y:end_y, :], row_mask)
+                # Vertical Fade: Eliminates the sharp horizontal cut line at the top of the section
+                y_fade = np.ones((len(y_coords), 1), dtype=np.float32)
+                if i > 0:
+                    # Create a gradient from 0.0 to 1.0 for the overlapping area
+                    fade_length = min(OVERLAP_OFFSET, len(y_coords))
+                    y_fade[:fade_length, 0] = np.linspace(0, 1, fade_length)
+                
+                # Multiply horizontal reveal with vertical fade
+                final_section_mask = row_mask * y_fade
+                
+                # Merge seamlessly with other sections
+                full_mask[start_y:end_y, :] = np.maximum(full_mask[start_y:end_y, :], final_section_mask)
 
         if torch_pos:
             torch_mask = np.zeros((H, W), dtype=np.float32)
@@ -252,7 +252,6 @@ def main():
             full_mask = np.maximum(full_mask, torch_mask)
 
         # Final Cinematic Composition
-        # Using the alpha mask to interpolate between the ghost layer and color layer
         mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
         display_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
 
