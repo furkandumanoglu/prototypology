@@ -4,58 +4,54 @@ An interactive art installation optimized for **Apple M3** that bridges the gap 
 
 ## 🎭 System Overview
 
-This project uses **MediaPipe Holistic** and **OpenCV** to track user poses in real-time. The installation creates a "living" version of the painting *Babylon*, which reacts to the viewer's physical presence and specific body movements.
+This project uses **MediaPipe Holistic** and **OpenCV** to track user poses in real-time. The installation creates a "living" version of the painting *Babylon*, which reacts to the viewer's physical presence through a two-stage "Divine Spark" revelation process.
 
 ## 📸 Reference Poses
 
-To unlock the layers of the painting, you must strike the following three poses:
+To unlock the layers of the painting, you must strike specific poses that correspond to figures in the artwork:
 
-| Pose 1 (First Layer) | Pose 2 (Second Layer) | Pose 3 (Last Layer) |
+| Pose 1 (Section 3) | Pose 2 (Section 2) | Pose 3 (Section 1) |
 |:---:|:---:|:---:|
 | ![Pose 1](pose1.png) | ![Pose 2](pose2.png) | ![Pose 3](pose3.png) |
-| **Triggers Bottom Section** | **Triggers Middle Section** | **Triggers Top Section** |
+| **Triggers Human (Bottom)** | **Triggers San Diego (Mid)** | **Triggers Maria (Top)** |
 
 ## 🖼️ How It Works
 
 ### 1. Visual Layers
-- **The Ghost Layer**: Initially, the painting is seen in a "spirit state"—grayscale and heavily blurred. This represents the hidden stories of the art.
-- **The Color Layer**: The original high-resolution masterpiece, hidden beneath the ghost layer.
-- **The Hand Torch**: Your index finger acts as a dynamic light source, allowing you to "peek" through the blur at any time.
+- **The Ghost Layer**: Initially, the painting is heavily blurred (201x201 Gaussian blur) and grayscale, representing a hidden or "liminal" state.
+- **The Golden Spark**: Lightning-like lines that flicker and pulse when a pose is successfully matched.
+- **The Color Layer**: The high-resolution original artwork, revealed through the "Miracle" sequence.
 
-### 2. Sequential Revelation (The Story Path)
-The installation follows a narrative state machine:
-1. **Pose 1**: Strike the first reference pose. Once matched, the **Bottom Section** begins a smooth Left-to-Right reveal.
-2. **Pose 2**: Strike the second pose to reveal the **Middle Section**.
-3. **Pose 3**: Strike the final pose to clear the **Top Section**, revealing the full story of Babylon.
+### 2. The Divine Spark Sequence (The Miracle)
+When a pose is matched and held for **0.8 seconds**, the system triggers a two-stage revelation:
+
+- **Stage A: The Spark (2 Seconds)**:
+  - Immediate audio feedback (`matchingsound.WAV` + thematic music).
+  - A "Golden Shadow" (lightning lines) appears and flickers intensely on top of the blur.
+- **Stage B: The Spread (25 Seconds)**:
+  - The color "blooms" outward starting specifically from where the shadow lines were located.
+  - The boundary uses a "Liquid Wave" effect with smoothstep interpolation and dynamic "dancing" waves for an organic feel.
+
+## 📁 Asset Mapping
+
+The system uses specific masks to drive the lightning and revelation for each section:
+
+| Section | Figure | Target Asset | Lightning Mask |
+|:---|:---|:---|:---|
+| **Section 3 (Bottom)** | **Human** | `Human.png` | `shadow1.png` |
+| **Section 2 (Middle)** | **San Diego** | `sandiego.png` | `shadow2.png` |
+| **Section 1 (Top)** | **Maria** | `maria.png` | `shadow3.png` |
+
+*Note: `shadow1.png`, `shadow2.png`, and `shadow3.png` are the black images with white lines corresponding to the figures.*
 
 ## ⚙️ The Body Tracking Process
 
-The system employs a sophisticated real-time analysis pipeline to ensure accurate and responsive interaction:
-
 ### 1. Landmark Detection
-Using **MediaPipe Holistic**, the system identifies 33 3D body landmarks. For this installation, we focus on the upper body (shoulders, elbows, and wrists) to provide a stable experience regardless of the user's distance from the camera.
+The system identifies body landmarks using MediaPipe. We focus on the upper body (shoulders and elbows) to calculate joint angles, making the system **scale-invariant**.
 
-### 2. Angular Analysis
-Instead of tracking absolute pixel positions—which vary based on user height and distance—the system calculates the **relative angles** between joints:
-- **Shoulder Angle**: Calculated between the Hip, Shoulder, and Elbow.
-- **Elbow Angle**: Calculated between the Shoulder, Elbow, and Wrist.
-
-This mathematical approach makes the tracking **scale-invariant**, meaning it works for everyone regardless of body type.
-
-### 3. Real-Time Comparison
-The current body angles are compared against a `reference_poses.json` file. 
+### 2. Matching Logic
 - **Tolerance**: A 35-degree threshold allows for natural human variation.
-- **Hold Logic**: A pose must be maintained for **0.8 seconds**. A visual progress bar appears on-screen to guide the user through the "ceremony" of the reveal.
-
-### 4. Apple M3 Optimization
-The processing pipeline is optimized for Apple Silicon, utilizing vectorized operations in **NumPy** and hardware-accelerated **OpenCV** routines to maintain a consistent 30+ FPS even with high-resolution image processing and Gaussian blurs.
-
-## 📁 Project Structure
-- `interactive_art.py`: The main installation script.
-- `calibrate_poses.py`: A tool to capture and save your own reference poses.
-- `reference_poses.json`: Stored joint data for the matching algorithm.
-- `babylon.jpg`: The high-resolution art asset.
-- `pose1.png`, `pose2.png`, `pose3.png`: Reference pose visual guides.
+- **State Machine**: The installation follows a sequential path (Bottom -> Middle -> Top) to build a narrative journey.
 
 ## 🚀 Getting Started
 
@@ -63,12 +59,14 @@ The processing pipeline is optimized for Apple Silicon, utilizing vectorized ope
    ```bash
    pip install opencv-python mediapipe pygame numpy
    ```
-2. **Calibrate (Optional)**:
-   Use `calibrate_poses.py` to set your own reference points.
-3. **Launch the Installation**:
+2. **Launch the Installation**:
    ```bash
    python3 interactive_art.py
    ```
+3. **Controls**:
+   - Strike the pose shown in the reference images.
+   - Hold the pose until the progress bar completes.
+   - Press **'q'** to exit the installation.
 
 ---
 *Created as an exploration of narrative art and computer vision.*

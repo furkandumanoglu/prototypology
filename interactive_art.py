@@ -23,7 +23,6 @@ SPARK_DURATION = 2.0        # seconds (Lightning Flicker)
 GHOST_BLUR_SIZE = (201, 201)
 
 FEATHER_SIZE = 300  # Increased for much softer transition
-TORCH_RADIUS = 150  
 
 # Ripple Effect Settings
 WAVE_AMPLITUDE = 60.0  # Wave width
@@ -186,7 +185,6 @@ def main():
         results = holistic.process(image_rgb)
         
         current_angles = {}
-        torch_pos = None
         
         # Increment to make the wave move autonomously
         animation_time += 0.15 
@@ -204,13 +202,6 @@ def main():
                 "left_elbow": calculate_angle(l_s, l_e, l_w),
                 "right_elbow": calculate_angle(r_s, r_e, r_w)
             }
-            
-            if results.right_hand_landmarks:
-                idx_tip = results.right_hand_landmarks.landmark[8]
-                torch_pos = (int(idx_tip.x * W), int(idx_tip.y * H))
-            elif results.left_hand_landmarks:
-                idx_tip = results.left_hand_landmarks.landmark[8]
-                torch_pos = (int(idx_tip.x * W), int(idx_tip.y * H))
 
         # --- State Machine Logic ---
         target_pose_key = None
@@ -293,10 +284,11 @@ def main():
                 v_mask = np.zeros((H, 1), dtype=np.float32)
                 
                 # 3cm (approx 120px) upward shift for the first layer (i=0)
+                # But ensure the bottom section still covers the very bottom (H)
                 y_shift = 120 if i == 0 else 0
                 
                 start_y = (2 - i) * section_h - y_shift
-                end_y = (3 - i) * section_h - y_shift
+                end_y = (3 - i) * section_h
                 
                 # Clamp to screen boundaries
                 start_y = max(0, start_y)
@@ -315,13 +307,6 @@ def main():
                 
                 section_mask *= v_mask
                 full_mask = np.maximum(full_mask, section_mask)
-
-        # Torch logic (interactive reveal)
-        if torch_pos:
-            torch_mask = np.zeros((H, W), dtype=np.float32)
-            cv2.circle(torch_mask, torch_pos, TORCH_RADIUS, 1.0, -1)
-            torch_mask = cv2.GaussianBlur(torch_mask, (51, 51), 0)
-            full_mask = np.maximum(full_mask, torch_mask)
 
         # Composition
         mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
