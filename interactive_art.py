@@ -12,19 +12,25 @@ cv2.setUseOptimized(True)
 # --- Configuration & Constants ---
 IMAGE_PATH = "babylon.jpg"
 REFERENCE_POSES_PATH = "reference_poses.json"
+SHADOW_PATHS = ["shadow1.png", "shadow2.png", "shadow3.png"] # Ordered to match bottom-to-top reveal sequence
 
 # Tolerance increased and hold time reduced for better UX
 TOLERANCE = 35  # degrees
 HOLD_TIME = 0.8  # seconds
 
-TRANSITION_DURATION = 25.0  # seconds
-FEATHER_SIZE = 150  # Increased for a softer edge
+TRANSITION_DURATION = 25.0  # seconds (Revelation)
+SPARK_DURATION = 2.0        # seconds (Lightning Flicker)
+GHOST_BLUR_SIZE = (201, 201)
+
+FEATHER_SIZE = 300  # Increased for much softer transition
 TORCH_RADIUS = 150  
 
 # Ripple Effect Settings
 WAVE_AMPLITUDE = 60.0  # Wave width
 WAVE_FREQUENCY = 0.02  # Wave frequency
 OVERLAP_OFFSET = 200   # How many pixels a section extends upwards
+
+GOLDEN_COLOR = (0, 215, 255) # BGR
 
 # --- Initialize MediaPipe ---
 mp_holistic = mp.solutions.holistic
@@ -63,6 +69,9 @@ def load_sound(file_name):
     print(f"⚠️ Error: Sound effect not found at {file_path}")
     return None
 
+# 2. Sound Effects
+matching_sound = load_sound("matchingsound.WAV")
+
 sounds = {
     "pose_1": load_sound("music1.wav"), 
     "pose_2": load_sound("music2.wav"),
@@ -92,12 +101,15 @@ def match_pose(current_angles, reference_pose, pose_name):
 # --- State Machine Setup ---
 class State:
     WAITING_FOR_POSE_1 = 0
-    REVEALING_SECTION_3 = 1  
-    WAITING_FOR_POSE_2 = 2
-    REVEALING_SECTION_2 = 3  
-    WAITING_FOR_POSE_3 = 4
-    REVEALING_SECTION_1 = 5  
-    ALL_REVEALED = 6
+    SPARKING_SECTION_3 = 1
+    REVEALING_SECTION_3 = 2
+    WAITING_FOR_POSE_2 = 3
+    SPARKING_SECTION_2 = 4
+    REVEALING_SECTION_2 = 5
+    WAITING_FOR_POSE_3 = 6
+    SPARKING_SECTION_1 = 7
+    REVEALING_SECTION_1 = 8
+    ALL_REVEALED = 9
 
 # --- Load Assets ---
 def setup_layers():
@@ -107,13 +119,38 @@ def setup_layers():
     color_layer = img.copy()
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     ghost_base = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-    ghost_layer = cv2.GaussianBlur(ghost_base, (99, 99), 0)
-    return color_layer, ghost_layer
+    ghost_layer = cv2.GaussianBlur(ghost_base, GHOST_BLUR_SIZE, 0)
+    
+    shadow_layers = []
+    dist_transforms = []
+    
+    for path in SHADOW_PATHS:
+        # Load shadow (white lines on black)
+        shadow_mask = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if shadow_mask is None:
+            print(f"⚠️ Warning: Could not load shadow {path}")
+            shadow_mask = np.zeros(img.shape[:2], dtype=np.uint8)
+        
+        # 1. Create Golden Glow Layer
+        # Create a colored image from the mask
+        glow_layer = np.zeros_like(img)
+        glow_layer[shadow_mask > 127] = GOLDEN_COLOR
+        # Blur the colored lines to create a glow/lightning effect
+        glow_layer = cv2.GaussianBlur(glow_layer, (21, 21), 0)
+        shadow_layers.append(glow_layer)
+        
+        # 2. Calculate Distance Transform for reveal logic
+        # Invert mask so lines are 0 (distance is from lines)
+        inverted_mask = cv2.bitwise_not(shadow_mask)
+        dist = cv2.distanceTransform(inverted_mask, cv2.DIST_L2, 5)
+        dist_transforms.append(dist)
+        
+    return color_layer, ghost_layer, shadow_layers, dist_transforms
 
 # --- Main Application ---
 def main():
     try:
-        color_layer, ghost_layer = setup_layers()
+        color_layer, ghost_layer, shadow_layers, dist_transforms = setup_layers()
         with open(REFERENCE_POSES_PATH, 'r') as f:
             reference_data = json.load(f)
     except Exception as e:
@@ -124,6 +161,9 @@ def main():
     section_h = H // 3
     reveal_progress = [0.0, 0.0, 0.0]
     
+    # Pre-calculate max distances for normalization
+    max_dists = [np.max(dt) for dt in dist_transforms]
+    
     transition_start_time = None
     current_state = State.WAITING_FOR_POSE_1
     pose_hold_start = None
@@ -132,7 +172,7 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
     
-    print("🚀 Setup Complete. Performance Starting.")
+    print("🚀 Divine Spark Update Active. Performance Starting.")
     
     # Time-based ripple variable for animation
     animation_time = 0.0
@@ -149,7 +189,7 @@ def main():
         torch_pos = None
         
         # Increment to make the wave move autonomously
-        animation_time += 0.1 
+        animation_time += 0.15 
         
         if results.pose_landmarks:
             landmarks = results.pose_landmarks.landmark
@@ -183,77 +223,112 @@ def main():
                 if pose_hold_start is None: 
                     pose_hold_start = time.time()
                 elif time.time() - pose_hold_start >= HOLD_TIME:
+                    # MATCH! Stage A Triggered
+                    if matching_sound: matching_sound.play()
                     if sounds[target_pose_key]: 
                         sounds[target_pose_key].play()
-                        print(f"🎵 Playing {target_pose_key} sound!")
-                    else:
-                        print(f"⚠️ {target_pose_key} sound could not be loaded, skipping playback.")
+                        print(f"🎵 Sparking {target_pose_key}!")
                     
-                    current_state += 1
+                    current_state += 1 # Transition to SPARKING
                     transition_start_time = time.time() 
                     pose_hold_start = None
             else:
                 pose_hold_start = None
 
-        # --- Time-Based Animation Sync ---
+        # --- Transition Management ---
         current_time = time.time()
-        if current_state in [State.REVEALING_SECTION_1, State.REVEALING_SECTION_2, State.REVEALING_SECTION_3]:
+        
+        # Sparking Duration (Stage A)
+        if current_state in [State.SPARKING_SECTION_3, State.SPARKING_SECTION_2, State.SPARKING_SECTION_1]:
+            if current_time - transition_start_time >= SPARK_DURATION:
+                current_state += 1 # Transition to REVEALING
+                transition_start_time = time.time() # Reset timer for Stage B
+        
+        # Revelation Progress (Stage B)
+        elif current_state in [State.REVEALING_SECTION_3, State.REVEALING_SECTION_2, State.REVEALING_SECTION_1]:
+            idx = 0 if current_state == State.REVEALING_SECTION_3 else (1 if current_state == State.REVEALING_SECTION_2 else 2)
             elapsed = current_time - transition_start_time
-            idx = 2 if current_state == State.REVEALING_SECTION_3 else (1 if current_state == State.REVEALING_SECTION_2 else 0)
             reveal_progress[idx] = min(elapsed / TRANSITION_DURATION, 1.0)
-            
             if reveal_progress[idx] >= 1.0: 
                 current_state += 1
 
-        # --- Cinematic Rendering with Liquid Wave ---
+        # --- Rendering Logic ---
         full_mask = np.zeros((H, W), dtype=np.float32)
+        active_spark_layer = np.zeros((H, W, 3), dtype=np.uint8)
         
         for i in range(3):
-            start_y, end_y = i * section_h, (i + 1) * section_h
-            
-            if i == 2: 
-                end_y = H 
-            
-            # Extend sections upwards to prevent hard horizontal boundaries
-            if i > 0:
-                start_y = max(0, start_y - OVERLAP_OFFSET) 
-            
+            # i=0 is Section 3 (Bottom), i=1 is Section 2 (Middle), i=2 is Section 1 (Top)
+            # This matches SHADOW_PATHS = [shadow3, shadow2, shadow1]
             p = reveal_progress[i]
-            if p > 0:
-                y_coords = np.arange(start_y, end_y)
-                wave_offset = np.sin(y_coords * WAVE_FREQUENCY + animation_time) * WAVE_AMPLITUDE
-                
-                base_x = p * (W + WAVE_AMPLITUDE * 2 + FEATHER_SIZE) - FEATHER_SIZE
-                reveal_x_per_row = base_x + wave_offset
-                
-                x_grid = np.arange(W)
-                t = np.clip((x_grid - reveal_x_per_row[:, None]) / -FEATHER_SIZE + 1.0, 0, 1)
-                
-                # Non-linear Ease-In-Out for horizontal liquid feel
-                row_mask = t * t * (3 - 2 * t)
-                
-                # Vertical Fade: Eliminates the sharp horizontal cut line at the top of the section
-                y_fade = np.ones((len(y_coords), 1), dtype=np.float32)
-                if i > 0:
-                    # Create a gradient from 0.0 to 1.0 for the overlapping area
-                    fade_length = min(OVERLAP_OFFSET, len(y_coords))
-                    y_fade[:fade_length, 0] = np.linspace(0, 1, fade_length)
-                
-                # Multiply horizontal reveal with vertical fade
-                final_section_mask = row_mask * y_fade
-                
-                # Merge seamlessly with other sections
-                full_mask[start_y:end_y, :] = np.maximum(full_mask[start_y:end_y, :], final_section_mask)
+            
+            # 1. Handle Sparking (Stage A)
+            section_sparking_state = [State.SPARKING_SECTION_3, State.SPARKING_SECTION_2, State.SPARKING_SECTION_1][i]
+            if current_state == section_sparking_state:
+                # Flicker Logic: rapid pulsing like lightning
+                flicker = (np.sin(current_time * 60) * 0.5 + 0.5) * (np.random.rand() * 0.3 + 0.7)
+                spark_img = (shadow_layers[i] * flicker).astype(np.uint8)
+                active_spark_layer = cv2.add(active_spark_layer, spark_img)
 
+            # 2. Handle Revelation (Stage B)
+            if p > 0:
+                dist_transform = dist_transforms[i]
+                max_dist = max_dists[i]
+                
+                # Dynamic "Dance" logic: Combine two waves with different frequencies
+                y_coords = np.linspace(0, H, H)
+                wave_slow = np.sin(y_coords * WAVE_FREQUENCY + animation_time) * WAVE_AMPLITUDE
+                wave_fast = np.sin(y_coords * WAVE_FREQUENCY * 3.5 + animation_time * 2.2) * (WAVE_AMPLITUDE * 0.4)
+                combined_wave = wave_slow + wave_fast
+                
+                # reveal_threshold moves from 0 to max_dist
+                threshold = p * (max_dist + WAVE_AMPLITUDE + FEATHER_SIZE)
+                row_thresholds = threshold + combined_wave[:, None]
+                
+                # Calculate mask with Smoothstep falloff for premium softness
+                # dist_transform: 0 at lines, increasing away
+                t = np.clip((row_thresholds - dist_transform) / FEATHER_SIZE, 0, 1)
+                section_mask = t * t * (3 - 2 * t)
+                
+                # Vertical constraint with Feathered boundaries to avoid sharp section lines
+                v_mask = np.zeros((H, 1), dtype=np.float32)
+                
+                # 3cm (approx 120px) upward shift for the first layer (i=0)
+                y_shift = 120 if i == 0 else 0
+                
+                start_y = (2 - i) * section_h - y_shift
+                end_y = (3 - i) * section_h - y_shift
+                
+                # Clamp to screen boundaries
+                start_y = max(0, start_y)
+                end_y = min(H, end_y)
+                
+                if i < 2: start_y = max(0, start_y - OVERLAP_OFFSET)
+                
+                v_mask[int(start_y):int(end_y)] = 1.0
+                
+                # Soft vertical fade at the boundary of the section
+                if start_y > 0:
+                    fade_h = min(200, section_h)
+                    fade_ramp = np.linspace(0, 1, fade_h).reshape(-1, 1)
+                    target_range = v_mask[int(start_y):int(start_y)+fade_h]
+                    v_mask[int(start_y):int(start_y)+fade_h] = np.minimum(target_range, fade_ramp)
+                
+                section_mask *= v_mask
+                full_mask = np.maximum(full_mask, section_mask)
+
+        # Torch logic (interactive reveal)
         if torch_pos:
             torch_mask = np.zeros((H, W), dtype=np.float32)
             cv2.circle(torch_mask, torch_pos, TORCH_RADIUS, 1.0, -1)
             torch_mask = cv2.GaussianBlur(torch_mask, (51, 51), 0)
             full_mask = np.maximum(full_mask, torch_mask)
 
-        # Final Cinematic Composition
+        # Composition
         mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
-        display_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
+        base_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
+        
+        # Add the Golden Spark (Additive blending for intense glow)
+        display_img = cv2.add(base_img, active_spark_layer)
 
         if pose_hold_start:
             progress_pct = min(int((time.time() - pose_hold_start) / HOLD_TIME * 100), 100)
