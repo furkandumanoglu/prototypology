@@ -119,6 +119,7 @@ class State:
     SPARKING_SECTION_1 = 7
     REVEALING_SECTION_1 = 8
     ALL_REVEALED = 9
+    MEMORY_DISPLAY = 10
 
 # --- Load Assets ---
 def setup_layers():
@@ -156,6 +157,48 @@ def setup_layers():
         
     return color_layer, ghost_layer, shadow_layers, dist_transforms
 
+def capture_user_snapshot(frame):
+    """Crops the raw frame to portrait aspect ratio and adds a subtle golden border."""
+    h, w, _ = frame.shape
+    target_w = int(h * 0.75) # 3:4 portrait
+    start_x = (w - target_w) // 2
+    # Ensure indices are integers and within bounds
+    cropped = frame[:, max(0, start_x):min(w, start_x + target_w)].copy()
+    
+    # Professional golden border
+    border_size = 12
+    snapshot = cv2.copyMakeBorder(cropped, border_size, border_size, border_size, border_size, 
+                                  cv2.BORDER_CONSTANT, value=GOLDEN_COLOR)
+    return snapshot
+
+def draw_memory_wall(canvas, snapshots, alpha, aw_rect):
+    """Displays user snapshots on the right side of the artwork area with a cinematic fade."""
+    if not snapshots: return canvas
+    ax, ay, aw, ah = aw_rect
+    ch, cw, _ = canvas.shape
+    
+    # Calculate vertical layout
+    margin = 50
+    total_margin = margin * (len(snapshots) + 1)
+    snap_h = (ah - total_margin) // len(snapshots)
+    
+    overlay = canvas.copy()
+    for i, snap in enumerate(snapshots):
+        sh, sw, _ = snap.shape
+        scale = snap_h / sh
+        rw, rh = int(sw * scale), int(snap_h)
+        res = cv2.resize(snap, (rw, rh))
+        
+        # Position: Right-aligned within or adjacent to the artwork
+        px = ax + aw - rw - 60
+        py = ay + margin + i * (snap_h + margin)
+        
+        if py + rh <= ch and px + rw <= cw:
+            roi = overlay[py:py+rh, px:px+rw]
+            overlay[py:py+rh, px:px+rw] = cv2.addWeighted(res, alpha, roi, 1.0 - alpha, 0)
+            
+    return overlay
+
 # --- Main Application ---
 def main():
     try:
@@ -175,9 +218,11 @@ def main():
     
     transition_start_time = None
     revelation_finish_time = None
+    memory_start_time = None
     current_state = State.WAITING_FOR_POSE_1
     pose_hold_start = None
     climax_triggered = False
+    user_snapshots = []
     
     # Initialize Display Window in Normal Mode (not full screen)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -236,6 +281,9 @@ def main():
                 if pose_hold_start is None: 
                     pose_hold_start = time.time()
                 elif force_trigger or (time.time() - pose_hold_start >= HOLD_TIME):
+                    # 0. Capture Snapshot immediately before spark
+                    user_snapshots.append(capture_user_snapshot(frame))
+                    
                     # MATCH! Trigger Audio Layering
                     CHAN_SFX.play(matching_sound)
                     
@@ -285,6 +333,12 @@ def main():
                         CHAN_CLIMAX.play(climax_sound)
                         climax_triggered = True
                         print("✨ Ritual Complete: Final Climax Triggered!")
+            
+            # Transition to Memory Wall after climax sound finishes
+            if climax_triggered and not CHAN_CLIMAX.get_busy():
+                current_state = State.MEMORY_DISPLAY
+                memory_start_time = time.time()
+                print("📸 Displaying Memory Wall...")
 
         # --- Rendering Logic ---
         full_mask = np.zeros((H, W), dtype=np.float32)
@@ -366,6 +420,11 @@ def main():
         off_y = (screen_h - new_h) // 2
         canvas[off_y:off_y+new_h, off_x:off_x+new_w] = scaled_img
         
+        # --- Memory Wall Overlay ---
+        if current_state == State.MEMORY_DISPLAY and memory_start_time:
+            alpha = min((time.time() - memory_start_time) / 2.0, 1.0) # 2-second fade
+            canvas = draw_memory_wall(canvas, user_snapshots, alpha, (off_x, off_y, new_w, new_h))
+
         cv2.imshow(WINDOW_NAME, canvas)
         # Key handling moved to start of loop
 
