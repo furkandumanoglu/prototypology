@@ -95,8 +95,8 @@ def calculate_angle(a, b, c):
     if angle > 180.0: angle = 360 - angle
     return angle
 
-# Matching logic focused only on the 4 core joints
-CRITICAL_JOINTS = ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow"]
+# Matching logic focused on the core joints (Shoulders, Elbows, Hips)
+CRITICAL_JOINTS = ["left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_hip", "right_hip"]
 
 def match_pose(current_angles, reference_pose, pose_name):
     if not current_angles: return False
@@ -107,8 +107,24 @@ def match_pose(current_angles, reference_pose, pose_name):
                 return False
     return True
 
+# --- Clap Detection ---
+def detect_clap(results):
+    """Detects a 'clap' gesture by checking the distance between palm centers."""
+    if results.left_hand_landmarks and results.right_hand_landmarks:
+        # Landmark 9 is the Middle Finger MCP (center of palm area)
+        l_palm = results.left_hand_landmarks.landmark[9]
+        r_palm = results.right_hand_landmarks.landmark[9]
+        
+        # Calculate Euclidean distance in normalized coordinates
+        dist = np.sqrt((l_palm.x - r_palm.x)**2 + (l_palm.y - r_palm.y)**2)
+        
+        # Threshold: 0.08 is a good 'hands touching' distance
+        return dist < 0.08
+    return False
+
 # --- State Machine Setup ---
 class State:
+    START_SCREEN = -1
     WAITING_FOR_POSE_1 = 0
     SPARKING_SECTION_3 = 1
     REVEALING_SECTION_3 = 2
@@ -219,7 +235,7 @@ def main():
     transition_start_time = None
     revelation_finish_time = None
     memory_start_time = None
-    current_state = State.WAITING_FOR_POSE_1
+    current_state = State.START_SCREEN
     pose_hold_start = None
     climax_triggered = False
     user_snapshots = []
@@ -261,7 +277,9 @@ def main():
                 "left_shoulder": calculate_angle(l_h, l_s, l_e),
                 "right_shoulder": calculate_angle(r_h, r_s, r_e),
                 "left_elbow": calculate_angle(l_s, l_e, l_w),
-                "right_elbow": calculate_angle(r_s, r_e, r_w)
+                "right_elbow": calculate_angle(r_s, r_e, r_w),
+                "left_hip": calculate_angle(l_s, l_h, l_k),
+                "right_hip": calculate_angle(r_s, r_h, r_k)
             }
 
         # --- State Machine Logic ---
@@ -269,6 +287,14 @@ def main():
         if key == ord('q'): break
         force_trigger = (key == ord(' '))
         
+        if current_state == State.START_SCREEN:
+            if detect_clap(results) or force_trigger:
+                current_state = State.WAITING_FOR_POSE_1
+                CHAN_SFX.play(matching_sound)
+                print("👏 Clap Detected! Launching Installation...")
+                # Reset animation timer for a fresh start
+                animation_time = 0.0
+
         target_pose_key = None
         if current_state == State.WAITING_FOR_POSE_1: target_pose_key = "pose_1"
         elif current_state == State.WAITING_FOR_POSE_2: target_pose_key = "pose_2"
@@ -336,6 +362,10 @@ def main():
             
             # Transition to Memory Wall after climax sound finishes
             if climax_triggered and not CHAN_CLIMAX.get_busy():
+                # Swap first and third snapshots as requested for the final display
+                if len(user_snapshots) >= 3:
+                    user_snapshots[0], user_snapshots[2] = user_snapshots[2], user_snapshots[0]
+                
                 current_state = State.MEMORY_DISPLAY
                 memory_start_time = time.time()
                 print("📸 Displaying Memory Wall...")
@@ -389,9 +419,25 @@ def main():
                 full_mask = np.maximum(full_mask, section_mask)
 
         # Composition
-        mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
-        base_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
-        display_img = cv2.add(base_img, active_spark_layer)
+        if current_state == State.START_SCREEN:
+            # Render Start Screen
+            display_img = np.zeros((H, W, 3), dtype=np.uint8)
+            pulse = (np.sin(current_time * 3.0) * 0.5 + 0.5) * 0.5 + 0.5
+            text = "CLAP TO START"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 3.5
+            thickness = 8
+            text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+            text_x = (W - text_size[0]) // 2
+            text_y = (H + text_size[1]) // 2
+            
+            # Golden pulsing color
+            color = (int(GOLDEN_COLOR[0]*pulse), int(GOLDEN_COLOR[1]*pulse), int(GOLDEN_COLOR[2]*pulse))
+            cv2.putText(display_img, text, (text_x, text_y), font, font_scale, color, thickness, cv2.LINE_AA)
+        else:
+            mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
+            base_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
+            display_img = cv2.add(base_img, active_spark_layer)
 
         if pose_hold_start:
             progress_pct = min(int((time.time() - pose_hold_start) / HOLD_TIME * 100), 100)

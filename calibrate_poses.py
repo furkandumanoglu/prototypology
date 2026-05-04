@@ -26,6 +26,23 @@ def calculate_angle(a, b, c):
         
     return angle
 
+def save_pose_data(reference_poses, pose_key, current_angles, frame, output_file):
+    """
+    Saves the pose angles to JSON and the current frame as an image.
+    """
+    # Save JSON data
+    reference_poses[pose_key] = current_angles
+    with open(output_file, 'w') as f:
+        json.dump(reference_poses, f, indent=4)
+    
+    # Save Image
+    pose_num = pose_key.split('_')[1]
+    image_filename = f"pose{pose_num}.png"
+    cv2.imwrite(image_filename, frame)
+    
+    print(f"Saved {pose_key} to {output_file}")
+    print(f"Saved image to {image_filename}")
+
 def main():
     # File to save reference poses
     output_file = "reference_poses.json"
@@ -118,14 +135,14 @@ def main():
             if key == ord('q'):
                 break
             elif key in [ord('1'), ord('2'), ord('3')]:
-                pose_key = f"pose_{chr(key)}"
+                pose_num = chr(key)
+                pose_key = f"pose_{pose_num}"
                 if current_angles:
-                    reference_poses[pose_key] = current_angles
-                    with open(output_file, 'w') as f:
-                        json.dump(reference_poses, f, indent=4)
-                    print(f"Saved {pose_key} to {output_file}")
+                    # Capture the current frame with landmarks but before text if possible
+                    # However, since we are in the same loop, 'image' currently has both
+                    save_pose_data(reference_poses, pose_key, current_angles, image, output_file)
                 else:
-                    print("Error: No pose detected. Could not save.")
+                    print(f"Error: No pose detected. Could not save {pose_key}.")
 
     cap.release()
     cv2.destroyAllWindows()
