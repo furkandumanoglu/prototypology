@@ -37,7 +37,7 @@ def save_pose_data(reference_poses, pose_key, current_angles, frame, output_file
     
     # Save Image
     pose_num = pose_key.split('_')[1]
-    image_filename = f"pose{pose_num}.png"
+    image_filename = f"images/pose{pose_num}.png"
     cv2.imwrite(image_filename, frame)
     
     print(f"Saved {pose_key} to {output_file}")

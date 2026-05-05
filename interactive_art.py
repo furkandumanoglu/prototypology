@@ -12,7 +12,7 @@ cv2.setUseOptimized(True)
 # --- Configuration & Constants ---
 IMAGE_PATH = "babylon.jpg"
 REFERENCE_POSES_PATH = "reference_poses.json"
-SHADOW_PATHS = ["shadow1.png", "shadow2.png", "shadow3.png"] 
+SHADOW_PATHS = ["images/shadow1.png", "images/shadow2.png", "images/shadow3.png"] 
 
 # Tolerance increased and hold time reduced for better UX
 TOLERANCE = 35  # degrees
@@ -223,7 +223,7 @@ def main():
             reference_data = json.load(f)
         
         # Load and pre-scale brochure
-        brochure_raw = cv2.imread("brochu.png")
+        brochure_raw = cv2.imread("images/brochu.png")
         if brochure_raw is None:
             print("⚠️ Warning: brochu.png not found. Using black placeholder.")
             brochure_raw = np.zeros((color_layer.shape[0], 400, 3), dtype=np.uint8)

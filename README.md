@@ -12,7 +12,7 @@ To unlock the layers of the painting, you must strike specific poses that corres
 
 | Pose 1 (Section 3) | Pose 2 (Section 2) | Pose 3 (Section 1) |
 |:---:|:---:|:---:|
-| ![Pose 1](pose1.png) | ![Pose 2](pose2.png) | ![Pose 3](pose3.png) |
+| ![Pose 1](images/pose1.png) | ![Pose 2](images/pose2.png) | ![Pose 3](images/pose3.png) |
 | **Triggers Human (Bottom)** | **Triggers San Diego (Mid)** | **Triggers Maria (Top)** |
 
 ## 🖼️ How It Works
@@ -38,11 +38,11 @@ The system uses specific masks to drive the lightning and revelation for each se
 
 | Section | Figure | Target Asset | Lightning Mask |
 |:---|:---|:---|:---|
-| **Section 3 (Bottom)** | **Human** | `Human.png` | `shadow1.png` |
-| **Section 2 (Middle)** | **San Diego** | `sandiego.png` | `shadow2.png` |
-| **Section 1 (Top)** | **Maria** | `maria.png` | `shadow3.png` |
+| **Section 3 (Bottom)** | **Human** | `images/human.png` | `images/shadow1.png` |
+| **Section 2 (Middle)** | **San Diego** | `images/sandiego.png` | `images/shadow2.png` |
+| **Section 1 (Top)** | **Maria** | `images/maria.png` | `images/shadow3.png` |
 
-*Note: `shadow1.png`, `shadow2.png`, and `shadow3.png` are the black images with white lines corresponding to the figures.*
+*Note: `images/shadow1.png`, `images/shadow2.png`, and `images/shadow3.png` are the black images with white lines corresponding to the figures.*
 
 ## ⚙️ The Body Tracking Process
 
