@@ -221,6 +221,18 @@ def main():
         color_layer, ghost_layer, shadow_layers, dist_transforms = setup_layers()
         with open(REFERENCE_POSES_PATH, 'r') as f:
             reference_data = json.load(f)
+        
+        # Load and pre-scale brochure
+        brochure_raw = cv2.imread("brochu.png")
+        if brochure_raw is None:
+            print("⚠️ Warning: brochu.png not found. Using black placeholder.")
+            brochure_raw = np.zeros((color_layer.shape[0], 400, 3), dtype=np.uint8)
+        
+        # Match brochure height to artwork height
+        bh, bw, _ = brochure_raw.shape
+        H, W, _ = color_layer.shape
+        b_scale = H / bh
+        brochure_res = cv2.resize(brochure_raw, (int(bw * b_scale), H))
     except Exception as e:
         print(f"Initialization Error: {e}")
         return
@@ -242,7 +254,7 @@ def main():
     
     # Initialize Display Window in Normal Mode (not full screen)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(WINDOW_NAME, W // 2, H // 2)
+    cv2.resizeWindow(WINDOW_NAME, 1600, 900) # Bigger initial size
     
     cap = cv2.VideoCapture(1) 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
@@ -444,6 +456,11 @@ def main():
             cv2.putText(display_img, f"MATCHING... {progress_pct}%", (50, 80), 
                         cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 150), 3)
 
+        # --- Combined Display (Brochure + Artwork) ---
+        # Concatenate horizontally
+        display_scene = np.hstack((brochure_res, display_img))
+        SCENE_H, SCENE_W = display_scene.shape[:2]
+
         # --- Cinematic Letterbox Scaling ---
         # Get Current Window Size
         rect = cv2.getWindowImageRect(WINDOW_NAME)
@@ -451,16 +468,16 @@ def main():
         
         # Fallback if window rect is invalid
         if screen_w <= 0 or screen_h <= 0:
-            screen_w, screen_h = W // 2, H // 2
+            screen_w, screen_h = 1600, 900
 
         # Calculate scaling to fit screen while maintaining aspect ratio
-        scale = min(screen_w / W, screen_h / H)
-        new_w, new_h = max(1, int(W * scale)), max(1, int(H * scale))
+        scale = min(screen_w / SCENE_W, screen_h / SCENE_H)
+        new_w, new_h = max(1, int(SCENE_W * scale)), max(1, int(SCENE_H * scale))
         
-        # Resize artwork
-        scaled_img = cv2.resize(display_img, (new_w, new_h))
+        # Resize combined scene
+        scaled_img = cv2.resize(display_scene, (new_w, new_h))
         
-        # Create black canvas and center the artwork
+        # Create black canvas and center the scene
         canvas = np.zeros((screen_h, screen_w, 3), dtype=np.uint8)
         off_x = (screen_w - new_w) // 2
         off_y = (screen_h - new_h) // 2
