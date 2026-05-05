@@ -20,7 +20,6 @@ HOLD_TIME = 0.8  # seconds
 
 TRANSITION_DURATION = 25.0  # seconds (Revelation)
 SPARK_DURATION = 2.0        # seconds (Lightning Flicker)
-CLIMAX_DELAY = 7.0         # seconds (Delay after final reveal)
 GHOST_BLUR_SIZE = (251, 251) # Enhanced for deeper mystery
 
 FEATHER_SIZE = 300  # Increased for much softer transition
@@ -73,18 +72,11 @@ if bgm:
 
 # 2. Sound Effects & Layers
 matching_sound = load_sound("matchingsound.WAV")
-climax_sound = load_sound("flay.mp3")
-
-narrative_music = {
-    "pose_1": load_sound("music1.wav"), 
-    "pose_2": load_sound("music2.wav"),
-    "pose_3": load_sound("music3.wav")
-}
 
 instrumental_layers = {
-    "pose_1": load_sound("Layer 1.mp3"),
-    "pose_2": load_sound("Layer 2.mp3"),
-    "pose_3": load_sound("Layer 3.mp3")
+    "pose_1": load_sound("FINAL LAYER 1.wav"),
+    "pose_2": load_sound("FINAL LAYER 2.wav"),
+    "pose_3": load_sound("FINAL LAYER 3.wav")
 }
 
 # --- Pose Math ---
@@ -249,7 +241,6 @@ def main():
     memory_start_time = None
     current_state = State.START_SCREEN
     pose_hold_start = None
-    climax_triggered = False
     user_snapshots = []
     
     # Initialize Display Window in Normal Mode (not full screen)
@@ -322,18 +313,9 @@ def main():
                     # 0. Capture Snapshot immediately before spark
                     user_snapshots.append(capture_user_snapshot(frame))
                     
-                    # MATCH! Trigger Audio Layering
+                    # MATCH! Trigger Feedback
                     CHAN_SFX.play(matching_sound)
-                    
-                    # 1. Narrative Music (Ducked to 30%)
-                    if narrative_music[target_pose_key]:
-                        CHAN_MUSIC.play(narrative_music[target_pose_key])
-                        CHAN_MUSIC.set_volume(0.3)
-                    
-                    # 2. Instrumental Layer (Hero at 100%)
-                    if instrumental_layers[target_pose_key]:
-                        CHAN_LAYER.play(instrumental_layers[target_pose_key])
-                        CHAN_LAYER.set_volume(1.0)
+                    # Note: Instrumental Layer is triggered after a 2s delay in the SPARKING transition below
                     
                     print(f"🎵 Sparking {target_pose_key} (Manual: {force_trigger})")
                     
@@ -349,6 +331,12 @@ def main():
         # Sparking Duration (Stage A)
         if current_state in [State.SPARKING_SECTION_3, State.SPARKING_SECTION_2, State.SPARKING_SECTION_1]:
             if current_time - transition_start_time >= SPARK_DURATION:
+                # 2-Second Delay Complete: Start Instrumental Layer
+                pk = "pose_1" if current_state == State.SPARKING_SECTION_3 else ("pose_2" if current_state == State.SPARKING_SECTION_2 else "pose_3")
+                if instrumental_layers[pk]:
+                    CHAN_LAYER.play(instrumental_layers[pk])
+                    CHAN_LAYER.set_volume(1.0)
+                
                 current_state += 1 # Transition to REVEALING
                 transition_start_time = time.time() # Reset timer for Stage B
         
@@ -363,24 +351,17 @@ def main():
                     revelation_finish_time = current_time
                 current_state += 1
 
-        # Final Climax Trigger (Stage C)
+        # Final Transition to Memory Wall (Stage C)
         elif current_state == State.ALL_REVEALED:
-            if not climax_triggered and revelation_finish_time:
-                if current_time - revelation_finish_time >= CLIMAX_DELAY:
-                    if climax_sound:
-                        CHAN_CLIMAX.play(climax_sound)
-                        climax_triggered = True
-                        print("✨ Ritual Complete: Final Climax Triggered!")
-            
-            # Transition to Memory Wall after climax sound finishes
-            if climax_triggered and not CHAN_CLIMAX.get_busy():
+            # Transition to Memory Wall ONLY after revelation is finished AND music stops
+            if revelation_finish_time and not CHAN_LAYER.get_busy():
                 # Swap first and third snapshots as requested for the final display
                 if len(user_snapshots) >= 3:
                     user_snapshots[0], user_snapshots[2] = user_snapshots[2], user_snapshots[0]
                 
                 current_state = State.MEMORY_DISPLAY
                 memory_start_time = time.time()
-                print("📸 Displaying Memory Wall...")
+                print("📸 Ritual Complete. Displaying Memory Wall...")
 
         # --- Rendering Logic ---
         full_mask = np.zeros((H, W), dtype=np.float32)
