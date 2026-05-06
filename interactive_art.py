@@ -51,7 +51,6 @@ pygame.mixer.init()
 pygame.mixer.set_num_channels(16)
 
 # Dedicated Channels
-CHAN_BGM = pygame.mixer.Channel(0)
 CHAN_SFX = pygame.mixer.Channel(1)
 CHAN_MUSIC = pygame.mixer.Channel(2) # For narrative music (Ducked)
 CHAN_LAYER = pygame.mixer.Channel(3) # For instrumental layers (Hero)
@@ -63,12 +62,6 @@ def load_sound(file_name):
         return pygame.mixer.Sound(file_path)
     print(f"⚠️ Error: Sound not found at {file_path}")
     return None
-
-# 1. Background Music (Continuous Loop)
-bgm = load_sound("cont.wav")
-if bgm:
-    CHAN_BGM.play(bgm, loops=-1)
-    CHAN_BGM.set_volume(0.4)
 
 # 2. Sound Effects & Layers
 matching_sound = load_sound("matchingsound.WAV")
@@ -431,6 +424,21 @@ def main():
             mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
             base_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
             display_img = cv2.add(base_img, active_spark_layer)
+
+        if current_state == State.MEMORY_DISPLAY and memory_start_time:
+            # Cinematic Transition: B&W and Shadowy (Slowly getting dark)
+            fade_duration = 5.0 # 5-second smooth transition
+            elapsed = time.time() - memory_start_time
+            t = min(elapsed / fade_duration, 1.0)
+            
+            # Create Black & White version
+            bw_img = cv2.cvtColor(cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+            
+            # Create Shadowy version (approx 25% brightness for a dramatic feel)
+            shadowy_bw = (bw_img.astype(np.float32) * 0.25).astype(np.uint8)
+            
+            # Blend from color to shadowy BW
+            display_img = cv2.addWeighted(display_img, 1.0 - t, shadowy_bw, t, 0)
 
         if pose_hold_start:
             progress_pct = min(int((time.time() - pose_hold_start) / HOLD_TIME * 100), 100)
