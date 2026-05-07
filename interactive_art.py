@@ -120,7 +120,6 @@ class State:
     SPARKING_SECTION_1 = 7
     REVEALING_SECTION_1 = 8
     ALL_REVEALED = 9
-    MEMORY_DISPLAY = 10
 
 # --- Load Assets ---
 def setup_layers():
@@ -172,33 +171,6 @@ def capture_user_snapshot(frame):
                                   cv2.BORDER_CONSTANT, value=GOLDEN_COLOR)
     return snapshot
 
-def draw_memory_wall(canvas, snapshots, alpha, aw_rect):
-    """Displays user snapshots on the right side of the artwork area with a cinematic fade."""
-    if not snapshots: return canvas
-    ax, ay, aw, ah = aw_rect
-    ch, cw, _ = canvas.shape
-    
-    # Calculate vertical layout
-    margin = 50
-    total_margin = margin * (len(snapshots) + 1)
-    snap_h = (ah - total_margin) // len(snapshots)
-    
-    overlay = canvas.copy()
-    for i, snap in enumerate(snapshots):
-        sh, sw, _ = snap.shape
-        scale = snap_h / sh
-        rw, rh = int(sw * scale), int(snap_h)
-        res = cv2.resize(snap, (rw, rh))
-        
-        # Position: Right-aligned within or adjacent to the artwork
-        px = ax + aw - rw - 60
-        py = ay + margin + i * (snap_h + margin)
-        
-        if py + rh <= ch and px + rw <= cw:
-            roi = overlay[py:py+rh, px:px+rw]
-            overlay[py:py+rh, px:px+rw] = cv2.addWeighted(res, alpha, roi, 1.0 - alpha, 0)
-            
-    return overlay
 
 # --- Main Application ---
 def main():
@@ -231,10 +203,9 @@ def main():
     
     transition_start_time = None
     revelation_finish_time = None
-    memory_start_time = None
+    fade_start_time = None
     current_state = State.START_SCREEN
     pose_hold_start = None
-    user_snapshots = []
     
     # Initialize Display Window in Normal Mode (not full screen)
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -304,7 +275,8 @@ def main():
                     pose_hold_start = time.time()
                 elif force_trigger or (time.time() - pose_hold_start >= HOLD_TIME):
                     # 0. Capture Snapshot immediately before spark
-                    user_snapshots.append(capture_user_snapshot(frame))
+                    snapshot = capture_user_snapshot(frame)
+                    cv2.imwrite(f"images/spark_{target_pose_key}.png", snapshot)
                     
                     # MATCH! Trigger Feedback
                     CHAN_SFX.play(matching_sound)
@@ -344,17 +316,11 @@ def main():
                     revelation_finish_time = current_time
                 current_state += 1
 
-        # Final Transition to Memory Wall (Stage C)
+        # Final State: Experience stays on completed artwork
         elif current_state == State.ALL_REVEALED:
-            # Transition to Memory Wall ONLY after revelation is finished AND music stops
             if revelation_finish_time and not CHAN_LAYER.get_busy():
-                # Swap first and third snapshots as requested for the final display
-                if len(user_snapshots) >= 3:
-                    user_snapshots[0], user_snapshots[2] = user_snapshots[2], user_snapshots[0]
-                
-                current_state = State.MEMORY_DISPLAY
-                memory_start_time = time.time()
-                print("📸 Ritual Complete. Displaying Memory Wall...")
+                if fade_start_time is None:
+                    fade_start_time = time.time()
 
         # --- Rendering Logic ---
         full_mask = np.zeros((H, W), dtype=np.float32)
@@ -424,26 +390,26 @@ def main():
             mask_3ch = cv2.merge([full_mask, full_mask, full_mask])
             base_img = (ghost_layer * (1.0 - mask_3ch) + color_layer * mask_3ch).astype(np.uint8)
             display_img = cv2.add(base_img, active_spark_layer)
-
-        if current_state == State.MEMORY_DISPLAY and memory_start_time:
-            # Cinematic Transition: B&W and Shadowy (Slowly getting dark)
-            fade_duration = 5.0 # 5-second smooth transition
-            elapsed = time.time() - memory_start_time
+            
+        # Apply Cinematic B&W, Dark, and Blur Fade at the very end
+        if current_state == State.ALL_REVEALED and fade_start_time:
+            fade_duration = 8.0 # Slower, more dramatic transition
+            elapsed = time.time() - fade_start_time
             t = min(elapsed / fade_duration, 1.0)
             
-            # Create Black & White version
+            # 1. Create B&W version
             bw_img = cv2.cvtColor(cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
             
-            # Create Shadowy version (approx 25% brightness for a dramatic feel)
-            shadowy_bw = (bw_img.astype(np.float32) * 0.25).astype(np.uint8)
+            # 2. Create Blurred version
+            blurred_bw = cv2.GaussianBlur(bw_img, (91, 91), 0)
             
-            # Blend from color to shadowy BW
-            display_img = cv2.addWeighted(display_img, 1.0 - t, shadowy_bw, t, 0)
+            # 3. Create Darkened version (25% brightness)
+            dark_blurred_bw = (blurred_bw.astype(np.float32) * 0.25).astype(np.uint8)
+            
+            # Blend from color to the dark/blurred/BW target
+            display_img = cv2.addWeighted(display_img, 1.0 - t, dark_blurred_bw, t, 0)
 
-        if pose_hold_start:
-            progress_pct = min(int((time.time() - pose_hold_start) / HOLD_TIME * 100), 100)
-            cv2.putText(display_img, f"MATCHING... {progress_pct}%", (50, 80), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 150), 3)
+
 
         # --- Combined Display (Brochure + Artwork) ---
         # Concatenate horizontally
@@ -472,10 +438,6 @@ def main():
         off_y = (screen_h - new_h) // 2
         canvas[off_y:off_y+new_h, off_x:off_x+new_w] = scaled_img
         
-        # --- Memory Wall Overlay ---
-        if current_state == State.MEMORY_DISPLAY and memory_start_time:
-            alpha = min((time.time() - memory_start_time) / 2.0, 1.0) # 2-second fade
-            canvas = draw_memory_wall(canvas, user_snapshots, alpha, (off_x, off_y, new_w, new_h))
 
         cv2.imshow(WINDOW_NAME, canvas)
         # Key handling moved to start of loop
